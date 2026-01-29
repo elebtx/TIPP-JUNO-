@@ -42,4 +42,8 @@ Conformément aux objectifs du stage:
 * [ ] Implémentation des **erreurs systématiques** (incertitudes sur les flux, efficacité du détecteur).
 * [ ] Ajout des **effets de résolution en énergie** du détecteur.
 
+## Réferences
+
+[1] F. An et al. [JUNO Collaboration], J. Phys. G 43 (2016) no.3, 030401 [arXiv:1507.05613].
+
 
