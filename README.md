@@ -33,14 +33,15 @@ La simulation produit un graphique comparant :
 * Le spectre théorique **sans oscillation**.
 * Le spectre avec **Normal Ordering (NO)**.
 * Le spectre avec **Inverted Ordering (IO)**.
+* Les spectres avec les **effets de résolution en énergie** du détecteur.
+
 
 Le code calcule également le nombre total d'événements détectés par jour, un indicateur clé pour l'analyse statistique de JUNO.
 
 ## Évolutions prévues
 
-Conformément aux objectifs du stage:
-* [ ] Implémentation des **erreurs systématiques** (incertitudes sur les flux, efficacité du détecteur).
-* [ ] Ajout des **effets de résolution en énergie** du détecteur.
+Conformément aux objectifs du TIPP:
+
 
 ## Réferences
 
