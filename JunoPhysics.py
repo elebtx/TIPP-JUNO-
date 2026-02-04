@@ -65,3 +65,33 @@ def calculate_events_per_day(energies, spectrum_y, efficiency=0.73):
     factor = (PhysicsConstants.SIGMA_UNIT_CORRECTION * PhysicsConstants.N_PROTONS * PhysicsConstants.SECONDS_PER_DAY * efficiency)
               
     return integral * factor
+
+from scipy.stats import norm
+
+def energy_resolution(energies, spectrum):
+    """
+    Applique la résolution en énergie de 3%/sqrt(E).
+    """
+    convolved_spectrum = np.zeros_like(spectrum)
+    
+    # Paramètre de résolution JUNO
+    res = 0.03 
+    
+    # Pour chaque bin d'énergie réelle (E_true)
+    for i, e_true in enumerate(energies):
+        if spectrum[i] == 0:
+            continue
+            
+        # Calcul du sigma de la résolution pour cette énergie
+        sigma = res * np.sqrt(e_true)
+        
+        # On génère une distribution gaussienne centrée sur e_true
+        # et on distribue le contenu du bin i sur les bins voisins
+        kernel = norm.pdf(energies, loc=e_true, scale=sigma)
+        
+        # Normalisation du kernel pour conserver le nombre d'événements
+        kernel /= kernel.sum() if kernel.sum() > 0 else 1.0
+        
+        convolved_spectrum += spectrum[i] * kernel
+        
+    return convolved_spectrum
