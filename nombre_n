@@ -1,0 +1,159 @@
+import numpy as np  
+
+# 0) Constantes physiques JUNO
+
+P_TH_GW =  36.0                 # puissance thermique totale [GW]
+L_KM = 52.5                     # distance réacteurs -> JUNO [km]
+L_CM = L_KM * 1e5               # en cm (utile pour la géométrie du flux)
+N_P = 1.45e33                   # protons libres (20 kt LS)
+
+MEV_TO_J = 1.602176634e-13      # conversion MeV -> Joule
+E_FISSION_MEV = 200.0           # énergie libérée par fission (valeur standard)
+E_FISSION_J = E_FISSION_MEV * MEV_TO_J
+
+SECONDS_PER_DAY = 86400.0       # conversion secondes -> jour
+
+
+# 1) Spectres antineutrinos par fission
+
+COEFFS = {
+    "U235":  [3.217,  -3.111,  1.395,  -3.690e-1,  4.445e-2,  -2.053e-3],
+    "U238":  [4.833e-1,  1.927e-1, -1.283e-1, -6.762e-3,  2.233e-3, -1.536e-4],
+    "Pu239": [6.413,  -7.432,  3.535,  -8.820e-1,  1.025e-1, -4.550e-3],
+    "Pu241": [3.251,  -3.204,  1.428,  -3.675e-1,  4.254e-2, -1.896e-3],
+}  # coefficients de la paramétrisation exp(polynôme)
+
+FISSION_FRACTIONS = {
+    "U235": 0.577,
+    "U238": 0.076,
+    "Pu239": 0.295,
+    "Pu241": 0.052,
+}  # fractions de fission typiques d’un réacteur PWR
+
+def antinu_spectrum_per_fission(E, isotope):
+    # spectre ν̄_e produit par UNE fission de l’isotope considéré
+    a = np.array(COEFFS[isotope], dtype=float)      # coefficients du polynôme
+    powers = np.vstack([E**k for k in range(6)])    # E^0, E^1, ..., E^5
+    return np.exp(np.dot(a, powers))                # [1/(MeV fission)]
+
+def total_flux_per_fission(E):
+    # somme pondérée des spectres isotopiques -> flux total par fission
+    tot = np.zeros_like(E)
+    for iso, frac in FISSION_FRACTIONS.items():
+        tot += frac * antinu_spectrum_per_fission(E, iso)
+    return tot  # [1/(MeV fission)]
+
+
+# 2) Section efficace IBD (approx)
+
+ME = 0.511     # masse électron / positron [MeV]
+DELTA = 1.293  # Mn - Mp [MeV]
+
+def sigma_ibd(E):
+    # section efficace ν̄_e + p -> e+ + n
+    Ee = E - DELTA              # énergie du positron
+    pe2 = Ee**2 - ME**2         # impulsion^2
+
+    sigma = np.zeros_like(E)   # nul sous le seuil
+    mask = (Ee > ME) & (E >= 1.806)  # condition cinématique IBD
+
+    Ee_m = Ee[mask]
+    pe = np.sqrt(pe2[mask])
+
+    sigma[mask] = 1e-43 * pe * Ee_m  # cm^2 (formule approchée standard)
+    return sigma
+
+
+# 3) Oscillations (vide) — forme "article" (NH/IH visible)
+
+SIN2_TH12 = 0.307              # sin^2(theta12)
+SIN2_TH13 = 0.024              # sin^2(theta13)
+DM21 = 7.54e-5                 # Δm^2_21 [eV^2]
+DMEE = 2.43e-3                 # Δm^2_ee (positif par convention)
+
+def pee_article(E_nu, ordering="NH"):
+    # probabilité de survie ν̄_e -> ν̄_e
+    # ordering = NH ou IH (agit via un signe dans la phase d’interférence)
+
+    s12_2 = SIN2_TH12
+    c12_2 = 1.0 - s12_2
+    s13_2 = SIN2_TH13
+    c13_2 = 1.0 - s13_2
+
+    sin2_2th12 = 4.0 * s12_2 * c12_2
+    sin2_2th13 = 4.0 * s13_2 * c13_2
+
+    E_GeV = E_nu / 1000.0       # MeV -> GeV
+
+    D21 = 1.267 * DM21 * L_KM / E_GeV
+    Dee = 1.267 * DMEE * L_KM / E_GeV
+    absDee = np.abs(Dee)
+
+    A = 1.0 - sin2_2th12 * (np.sin(D21) ** 2)
+    A = np.maximum(A, 1e-15)   # sécurité numérique
+    sqrtA = np.sqrt(A)
+
+    sinphi = (c12_2 * np.sin(2.0 * s12_2 * D21) - s12_2 * np.sin(2.0 * c12_2 * D21)) / sqrtA
+    cosphi = (c12_2 * np.cos(2.0 * s12_2 * D21) + s12_2 * np.cos(2.0 * c12_2 * D21)) / sqrtA
+    phi = np.arctan2(sinphi, cosphi)
+
+    sign = +1.0 if ordering.upper() == "NH" else -1.0
+
+    term_sol = (c13_2 ** 2) * sin2_2th12 * (np.sin(D21) ** 2)
+    term_atm = 0.5 * sin2_2th13 * (1.0 - sqrtA * np.cos(2.0 * absDee + sign * phi))
+
+    pee = 1.0 - term_sol - term_atm
+    return np.clip(pee, 0.0, 1.0)
+
+
+# 4) Efficacité JUNO
+
+def efficiency(E, eps_max=0.73, E0=2.2, width=0.15):
+    # efficacité modélisée par une sigmoïde :
+    # seuil doux autour de E0, plateau à eps_max
+    return eps_max / (1 + np.exp(-(E - E0)/width))
+
+
+# 5) Flux absolu au détecteur
+
+def fission_rate():
+    # conversion puissance thermique -> fissions par seconde
+    return (P_TH_GW * 1e9) / E_FISSION_J  # fissions/s
+
+def flux_detector(E):
+    # flux ν̄_e arrivant au détecteur
+    geom = 1.0 / (4*np.pi*L_CM**2)        # facteur géométrique 1/(4πL^2)
+    return geom * fission_rate() * total_flux_per_fission(E)
+    # unités : 1/(MeV s cm^2)
+
+
+# 6) Nombre détecté par jour
+
+def detected_rate_per_day(ordering="NH"):
+    # calcule le nombre d’événements IBD détectés par jour
+    E = np.linspace(1.806, 10.0, 5000)  # grille énergie pour l’intégration
+
+    integrand = (
+        flux_detector(E)            # flux incident
+        * sigma_ibd(E)              # section efficace
+        * pee_article(E, ordering)  # oscillations
+        * efficiency(E)             # efficacité
+    )
+
+    rate_per_s = N_P * np.trapezoid(integrand, E)
+    return rate_per_s * SECONDS_PER_DAY
+
+
+# 7) Main
+
+if __name__ == "__main__":
+    rate_NH = detected_rate_per_day("NH")
+    rate_IH = detected_rate_per_day("IH")
+
+    print("JUNO : prédiction PHYSIQUE")
+    print(f"Puissance thermique : {P_TH_GW:.1f} GW")
+    print(f"Distance            : {L_KM:.1f} km")
+    print(f"Protons cibles      : {N_P:.2e}")
+    print("----------------------------------------------")
+    print(f"IBD détectés / jour (NH) : {rate_NH:.1f}")
+    print(f"IBD détectés / jour (IH) : {rate_IH:.1f}")
