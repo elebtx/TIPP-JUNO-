@@ -1,0 +1,272 @@
+import numpy as np
+import matplotlib.pyplot as plt  # plots (spectres, différences relatives, etc.)
+
+
+# 0) Constantes JUNO (nominal) + exposition
+
+P_TH_GW = 36.0                  # puissance nominale (thermique totale équivalente)
+L_KM = 52.5                     # baseline (distance réacteur -> détecteur) en km
+L_CM = L_KM * 1e5               # conversion km -> cm (car la géométrie/σ sont en cm)
+N_P = 1.45e33                   # nombre de protons libres (cibles IBD)
+
+MEV_TO_J = 1.602176634e-13      # conversion précise MeV -> J
+E_FISSION_MEV = 200.0           # énergie libérée par fission (valeur standard)
+E_FISSION_J = E_FISSION_MEV * MEV_TO_J  # énergie/fission en Joules
+
+SECONDS_PER_DAY = 86400.0
+SECONDS_PER_YEAR = 365.25 * SECONDS_PER_DAY  # année moyenne (inclut année bissextile)
+LIVE_TIME_YEARS = 6.0            # temps d'acquisition
+T_EXP = LIVE_TIME_YEARS * SECONDS_PER_YEAR  # exposition totale (s)
+
+E_MIN, E_MAX = 1.806, 10.0       # fenêtre énergie ν̄_e (seuil IBD ~1.806 MeV, ici on va jusqu'à 10)
+
+# Binning (fin -> courbe plus lisse)
+NBINS = 800                      # bins fins -> histogramme fin -> courbes plus "continues"
+E_BINS = np.linspace(E_MIN, E_MAX, NBINS + 1)  # bords des bins
+E_CENTERS = 0.5 * (E_BINS[1:] + E_BINS[:-1])   # centres des bins (pour plot en x)
+dE = E_BINS[1] - E_BINS[0]       # largeur d'un bin (constante ici)
+
+SMOOTH_BINS = 7                  # taille de la moyenne glissante (lissage visuel)
+
+
+# 1) Spectres antineutrinos par fission
+
+# coefficients (paramétrisation exp(polynôme)) pour chaque isotope
+COEFFS = {
+    "U235":  [3.217,  -3.111,  1.395,  -3.690e-1,  4.445e-2,  -2.053e-3],
+    "U238":  [4.833e-1,  1.927e-1, -1.283e-1, -6.762e-3,  2.233e-3, -1.536e-4],
+    "Pu239": [6.413,  -7.432,  3.535,  -8.820e-1,  1.025e-1, -4.550e-3],
+    "Pu241": [3.251,  -3.204,  1.428,  -3.675e-1,  4.254e-2, -1.896e-3],
+}
+
+# fractions de fission : pondère la contribution de chaque isotope au flux total
+FISSION_FRACTIONS = {
+    "U235": 0.577,
+    "U238": 0.076,
+    "Pu239": 0.295,
+    "Pu241": 0.052,
+}
+
+def antinu_spectrum_per_fission(E, isotope):
+    # spectre ν̄_e produit par UNE fission de l'isotope (en 1/(MeV fission))
+    a = np.array(COEFFS[isotope], dtype=float)      # récup les coeff du polynôme
+    powers = np.vstack([E**k for k in range(6)])    # construit [E^0, E^1, ..., E^5]
+    # exp(a0 + a1 E + ... + a5 E^5)
+    return np.exp(np.dot(a, powers))  # [1/(MeV fission)]
+
+def total_flux_per_fission(E):
+    # somme pondérée de tous les isotopes -> flux total par fission
+    tot = np.zeros_like(E)  # init tableau même taille que E
+    for iso, frac in FISSION_FRACTIONS.items():
+        tot += frac * antinu_spectrum_per_fission(E, iso)  # ajout contribution isotope
+    return tot  # [1/(MeV fission)]
+
+
+# 2) Section efficace IBD
+
+ME = 0.511     # masse électron/positron (MeV)
+DELTA = 1.293  # Mn - Mp (MeV) décalage cinématique
+
+def sigma_ibd(E):
+    # section efficace approximée ν̄_e + p -> e+ + n
+    Ee = E - DELTA              # énergie du positron (approx : Eν - Δ)
+    pe2 = Ee**2 - ME**2         # p_e^2 = E_e^2 - m_e^2 (en unités MeV^2)
+
+    sigma = np.zeros_like(E)    # par défaut = 0 (utile sous le seuil)
+    mask = (Ee > ME) & (E >= 1.806)  # condition seuil (Ee>=me) + E>=seuil IBD
+
+    Ee_m = Ee[mask]             # on extrait seulement la partie valide
+    pe = np.sqrt(pe2[mask])     # impulsion du positron
+
+    sigma[mask] = 1e-43 * pe * Ee_m  # cm^2 (formule très standard simplifiée)
+    return sigma
+
+
+# 3) Oscillations (forme "article" -> NO/IO visible)
+
+SIN2_TH12 = 0.307  # sin^2(theta12)
+SIN2_TH13 = 0.024  # sin^2(theta13)
+DM21 = 7.54e-5     # Δm^2_21 (eV^2)
+DMEE = 2.43e-3     # Δm^2_ee (eV^2) (valeur typique)
+
+def pee_article(E_nu, ordering="NO"):
+    # probabilité de survie ν̄_e -> ν̄_e
+    # ordering = NO/IO influe via un signe dans la phase d'interférence
+
+    s12_2 = SIN2_TH12
+    c12_2 = 1.0 - s12_2
+    s13_2 = SIN2_TH13
+    c13_2 = 1.0 - s13_2
+
+    # sin^2(2θ) = 4 s^2 c^2
+    sin2_2th12 = 4.0 * s12_2 * c12_2
+    sin2_2th13 = 4.0 * s13_2 * c13_2
+
+    E_GeV = E_nu / 1000.0  # conversion MeV -> GeV (car 1.267 utilise GeV)
+    D21 = 1.267 * DM21 * L_KM / E_GeV     # phase solaire
+    Dee = 1.267 * DMEE * L_KM / E_GeV     # phase atmosphérique effective
+    absDee = np.abs(Dee)                  # ici on sépare le signe ailleurs (article)
+
+    # A = 1 - sin^2(2θ12) sin^2(D21)
+    A = 1.0 - sin2_2th12 * (np.sin(D21) ** 2)
+    A = np.maximum(A, 1e-15)  # sécurité numérique (éviter sqrt de négatif)
+    sqrtA = np.sqrt(A)
+
+    # phi défini via sinphi/cosphi (définitions "article") : encode l'interférence
+    sinphi = (c12_2 * np.sin(2.0 * s12_2 * D21) - s12_2 * np.sin(2.0 * c12_2 * D21)) / sqrtA
+    cosphi = (c12_2 * np.cos(2.0 * s12_2 * D21) + s12_2 * np.cos(2.0 * c12_2 * D21)) / sqrtA
+    phi = np.arctan2(sinphi, cosphi)  # angle robuste (gère les quadrants)
+
+    # hiérarchie -> change le signe dans le cos( ... + sign*phi )
+    sign = +1.0 if ordering.upper() in ["NO", "NH", "NORMAL"] else -1.0
+
+    # terme solaire (amplitude réduite par c13^4)
+    term_sol = (c13_2 ** 2) * sin2_2th12 * (np.sin(D21) ** 2)
+
+    # terme atmosphérique avec modulation sqrtA * cos(...)
+    term_atm = 0.5 * sin2_2th13 * (1.0 - sqrtA * np.cos(2.0 * absDee + sign * phi))
+
+    # proba finale, bornée [0,1]
+    return np.clip(1.0 - term_sol - term_atm, 0.0, 1.0)
+
+
+# 4) Efficacité (plateau demandé)
+
+def efficiency(E, E_turn=2.2, width=0.15, plateau=0.73):
+    # sigmoid : en dessous de ~2 MeV -> faible efficacité, puis plateau à 0.73
+    return plateau / (1.0 + np.exp(-(E - E_turn) / width))
+
+
+# 5) Flux absolu + spectre d'événements (taux)
+
+def fission_rate():
+    # convertit puissance thermique -> nombre de fissions/s
+    # P(W) / E_fission(J) = fissions/s
+    return (P_TH_GW * 1e9) / E_FISSION_J  # fissions/s
+
+def flux_detector(E):
+    # flux au détecteur = (1/4πL^2) * (fissions/s) * (ν̄ / (MeV fission))
+    geom = 1.0 / (4.0 * np.pi * L_CM**2)  # facteur géométrique (cm^-2)
+    return geom * fission_rate() * total_flux_per_fission(E)  # 1/(MeV s cm^2)
+
+def dN_dE_dt(E, ordering="NO"):
+    # events/(MeV s)
+    # c'est "la formule maîtresse" : cible * flux * σ * Pee * efficacité
+    return (
+        N_P
+        * flux_detector(E)
+        * sigma_ibd(E)
+        * pee_article(E, ordering=ordering)
+        * efficiency(E)
+    )
+
+def expected_events(ordering="NO"):
+    # intégration du taux sur E -> nombre total attendu sur 6 ans
+    E = np.linspace(E_MIN, E_MAX, 9000)  # maillage fin pour intégration stable
+    rate_per_s = np.trapezoid(dN_dE_dt(E, ordering=ordering), E)  # events/s
+    return rate_per_s * T_EXP  # sur 6 ans
+
+
+# 6) Résolution + MC
+
+def sigma_E_juno(E, a=0.03):
+    # sigma(E) = a * sqrt(E) (MeV) ici -> forme JUNO simple
+    E = np.clip(E, 1e-6, None)
+    return a * np.sqrt(E)
+
+def smear_E(E_true, a=0.03, rng=None):
+    # smear gaussien : E_rec ~ N(E_true, sigma(E_true))
+    if rng is None:
+        rng = np.random.default_rng()
+    return rng.normal(loc=E_true, scale=sigma_E_juno(E_true, a=a))
+
+def sample_E_true(N, ordering="NO", seed=0):
+    """
+    Accept-reject avec proposition uniforme.
+    """
+    rng = np.random.default_rng(seed)  # RNG reproductible
+
+    # on prépare un majorant fmax sur un grid fin
+    grid = np.linspace(E_MIN, E_MAX, 12000)
+    fmax = np.max(dN_dE_dt(grid, ordering=ordering))
+    if not np.isfinite(fmax) or fmax <= 0:
+        raise RuntimeError("fmax invalide (<=0).")
+
+    out = []
+    # boucle jusqu'à avoir N énergies acceptées
+    while len(out) < N:
+        batch = 250000  # batch grand pour limiter les itérations python
+        E = rng.uniform(E_MIN, E_MAX, size=batch)  # propose des E uniformes
+        u = rng.uniform(0.0, fmax, size=batch)     # tirage uniforme sous fmax
+        f = dN_dE_dt(E, ordering=ordering)         # taux réel sur ces E
+        keep = E[u < f]                            # accept-reject
+        out.extend(keep.tolist())
+
+    return np.array(out[:N])  # on tronque si on a dépassé
+
+def moving_average(y, w):
+    # moyenne glissante simple pour lisser des courbes MC bruitées
+    if w <= 1:
+        return y
+    w = int(w)
+    kernel = np.ones(w, dtype=float) / w  # noyau uniforme
+    # padding simple pour éviter les bords trop moches
+    ypad = np.pad(y, (w//2, w-1-w//2), mode="edge")
+    return np.convolve(ypad, kernel, mode="valid")
+
+def mc_curve_Erec(ordering="NO", a=0.03, seed=0, use_poisson=True):
+    """
+    Renvoie une courbe lisse MC:
+      - tire N événements sur 6 ans
+      - smear -> E_rec
+      - estime S(E_rec) en events/MeV via histogramme fin + line plot + smoothing
+    """
+    rng = np.random.default_rng(seed)
+
+    mu = expected_events(ordering=ordering)  # moyenne attendue sur 6 ans
+    # soit on met du fluctuation Poisson (réaliste), soit on prend N=mu (Asimov-ish)
+    N = rng.poisson(mu) if use_poisson else int(round(mu))
+
+    # on tire les énergies vraies selon dN/dE dt (avec oscillations inclues ici)
+    E_true = sample_E_true(N, ordering=ordering, seed=seed)
+
+    # on applique la résolution -> énergie reconstruite
+    E_rec = smear_E(E_true, a=a, rng=rng)
+
+    # fenêtre énergie : on enlève NaN/inf et on coupe dans [E_MIN,E_MAX]
+    E_rec = E_rec[np.isfinite(E_rec)]
+    E_rec = E_rec[(E_rec >= E_MIN) & (E_rec <= E_MAX)]
+
+    # histogramme fin
+    counts, _ = np.histogram(E_rec, bins=E_BINS)
+
+    # spectre reconstruit : counts/bin_width -> events/MeV (sur 6 ans)
+    S = counts / dE
+    # lissage visuel (ne change pas la physique, juste rendu)
+    S = moving_average(S, SMOOTH_BINS)
+    return E_CENTERS, S, mu, N
+
+
+import matplotlib.pyplot as plt  # à avoir en haut si pas déjà fait
+
+# 7) Plots demandés (courbes, MC)
+
+def plot_no_io_spectrum_mc(a0=0.03):
+    # NO et IO avec même seed -> bruit statistique corrélé (comparaison plus "propre")
+    x, S_no, mu_no, N_no = mc_curve_Erec(ordering="NO", a=a0, seed=1)
+    _, S_io, mu_io, N_io = mc_curve_Erec(ordering="IO", a=a0, seed=1)  # même seed -> bruit corrélé
+
+    plt.figure(figsize=(9.2, 5.6))
+    plt.plot(x, S_no, linewidth=2, label=f"NO (MC, 6 ans)  μ={mu_no:.0f}, N={N_no}")
+    plt.plot(x, S_io, linewidth=2, label=f"IO (MC, 6 ans)  μ={mu_io:.0f}, N={N_io}")
+    plt.xlabel(r"$E_{\rm rec}$ (MeV)")
+    plt.ylabel(f"Events / MeV (over {LIVE_TIME_YEARS:g} years)")
+    plt.grid(True, alpha=0.25)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    plot_no_io_spectrum_mc(a0=0.03)
+
+   
