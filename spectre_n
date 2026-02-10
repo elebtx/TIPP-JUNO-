@@ -1,0 +1,206 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# 1) Définition de la grille d'énergie des antineutrinos
+
+def energies(n=500, Emin=1.8, Emax=10.0):
+    """
+    Crée une grille d'energie E entre Emin et Emax (en MeV).
+    n est le nombre de points utiliés pour le calcul.
+    """
+    return np.linspace(Emin, Emax, n)
+
+
+
+# 2) Spectres antineutrinos par fission
+#    λ_i(E) = exp( a0 + a1 E + a2 E^2 + ... + a5 E^5 )
+
+COEFFS = {
+    "U235":  [3.217,  -3.111,  1.395,  -3.690e-1,  4.445e-2,  -2.053e-3],
+    "U238":  [4.833e-1,  1.927e-1, -1.283e-1, -6.762e-3,  2.233e-3, -1.536e-4],
+    "Pu239": [6.413,  -7.432,  3.535,  -8.820e-1,  1.025e-1, -4.550e-3],
+    "Pu241": [3.251,  -3.204,  1.428,  -3.675e-1,  4.254e-2, -1.896e-3],
+}
+
+def antinu_spectrum_per_fission(E, isotope):
+    """
+    Calcule le spectre λ_i(E) d'antineutrinos
+    émis par fission pour un isotope donné.
+    """
+    # On récupère les coeficients du polynome
+    a = np.array(COEFFS[isotope], dtype=float)
+
+    # On construit les puissances E^0, E^1, ..., E^5
+    powers = np.vstack([E**k for k in range(6)])
+
+    # Produit scalaire : a0 + a1 E + ... + a5 E^5
+    poly = np.dot(a, powers)
+
+    # Exponentielle pour obtenir λ(E)
+    return np.exp(poly)   # unités : 1 / (MeV · fission)
+
+
+
+# 3) Section efficace IBD 
+ME = 0.511   # masse de l'électron (MeV)
+DELTA = 1.293  # différence neutron-proton (MeV)
+
+def sigma_ibd(E):
+    Ee = E - DELTA              # énergie du positron
+    pe2 = Ee**2 - ME**2         # p_e^2
+
+    sigma = np.zeros_like(E)
+
+    # condition physique : au-dessus du seuil
+    mask = (Ee > ME) & (E >= 1.806)
+
+    """
+    Calcule la section efficace IBD σ(E) en cm^2
+    (forme simple : σ ∝ E_e p_e)
+    """
+
+    # Energie du positron
+    Ee = E - DELTA
+
+    # Tableau pour σ(E)
+    sigma = np.zeros_like(E)
+
+    # Condition physique : réaction possible
+    mask = Ee > ME
+
+
+    # Energie et impulsion du positron
+    Ee_m = Ee[mask]
+
+    pe = np.sqrt(pe2[mask])
+
+    # formule IBD simplifiée
+    sigma[mask] = 1e-43 * pe * Ee_m   # cm^2
+
+    pe = np.sqrt(Ee_m**2 - ME**2)
+
+    # Formule simple (ordre de grandeur correct)
+    sigma[mask] = 1e-43 * Ee_m * pe
+
+    # Seuil IBD explicite
+    sigma = np.where(E >= 1.806, sigma, 0.0)
+
+
+    return sigma
+
+
+
+# 4) Fractions de fission dans le reacteur
+
+FISSION_FRACTIONS = {
+    "U235": 0.577,
+    "U238": 0.076,
+    "Pu239": 0.295,
+    "Pu241": 0.052,
+}
+
+def total_flux_per_fission(E):
+    """
+    Flux total du reacteur :
+    Φ(E) = Σ_i f_i λ_i(E)
+    """
+    tot = np.zeros_like(E)
+
+    for iso, frac in FISSION_FRACTIONS.items():
+        tot += frac * antinu_spectrum_per_fission(E, iso)
+
+    return tot
+
+
+
+# 5) Tracé des flux isotopiques et de la section efficace
+
+def plot_flux_and_sigma(E):
+    isotopes = ["U235", "U238", "Pu239", "Pu241"]
+    colors = {
+        "U235": "blue",
+        "U238": "magenta",
+        "Pu239": "red",
+        "Pu241": "green"
+    }
+
+    fig, ax1 = plt.subplots(figsize=(8.5, 5.2))
+
+    # Tracé des spectres λ_i(E)
+    for iso in isotopes:
+        lam = antinu_spectrum_per_fission(E, iso)
+        ax1.plot(E, lam, label=iso, color=colors[iso], linewidth=2)
+
+    ax1.set_xlabel(r"$\bar{\nu}_e$ energy (MeV)")
+    ax1.set_ylabel(r"Number of $\bar{\nu}_e$ (MeV$^{-1}$ fission$^{-1}$)")
+    ax1.set_xlim(1.8, 10.0)
+    ax1.set_ylim(0, 3.0)
+
+    # Deuxième axe pour σ(E)
+    ax2 = ax1.twinx()
+    sig = sigma_ibd(E)
+    ax2.plot(E, sig, label="Cross section", color="black", linewidth=2)
+    ax2.set_ylabel(r"Cross section (cm$^2$)")
+    ax2.set_ylim(0, 1.0e-41)
+
+    # Légende combinée
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper center")
+
+    ax1.grid(True, alpha=0.25)
+    plt.tight_layout()
+    plt.show()
+
+
+
+# 6) Spectre observable : λ(E) × σ(E)
+
+def plot_observable_spectra(E):
+    isotopes = ["U235", "U238", "Pu239", "Pu241"]
+    colors = {
+        "U235": "blue",
+        "U238": "magenta",
+        "Pu239": "red",
+        "Pu241": "green"
+    }
+
+    sig = sigma_ibd(E)
+    fig, ax = plt.subplots(figsize=(8.5, 5.2))
+
+    # Contribution de chaque isotope
+    for iso in isotopes:
+        lam = antinu_spectrum_per_fission(E, iso)
+        S = lam * sig
+        ax.plot(E, S, label=f"{iso} : λ×σ", color=colors[iso], linewidth=2)
+
+    # Spectre total du reacteur
+    lam_tot = total_flux_per_fission(E)
+    S_tot = lam_tot * sig
+    ax.plot(E, S_tot, label="Total : (Σ f_i λ_i)×σ", color="black", linewidth=2)
+
+    ax.set_xlabel(r"$\bar{\nu}_e$ energy (MeV)")
+    ax.set_ylabel("Observable spectrum (arb. units)")
+    ax.set_xlim(1.8, 10.0)
+    ax.grid(True, alpha=0.25)
+    ax.legend(loc="upper right")
+    ax.set_title("Observable spectra ∝ flux × IBD cross section")
+    plt.tight_layout()
+    plt.show()
+
+
+
+# 7) Programme principal
+
+def main():
+    # Création de la grille d'energie
+    E = energies()
+
+    # Figure 1 : flux isotopiques + section efficace
+    plot_flux_and_sigma(E)
+
+    # Figure 2 : spectre observable (sans oscillations)
+    plot_observable_spectra(E)
+
+if __name__ == "__main__":
+    main()
