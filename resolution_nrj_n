@@ -1,10 +1,10 @@
 import numpy as np
-import matplotlib.pyplot as plt  # plots (spectres, différences relatives, etc.)
+import matplotlib.pyplot as plt  
 
 
-# 0) Constantes JUNO (nominal) + exposition
+# 0) Constantes JUNO
 
-P_TH_GW = 36.0                  # puissance nominale (thermique totale équivalente)
+P_TH_GW = 36.0                  # puissance 
 L_KM = 52.5                     # baseline (distance réacteur -> détecteur) en km
 L_CM = L_KM * 1e5               # conversion km -> cm (car la géométrie/σ sont en cm)
 N_P = 1.45e33                   # nombre de protons libres (cibles IBD)
@@ -14,19 +14,18 @@ E_FISSION_MEV = 200.0           # énergie libérée par fission (valeur standar
 E_FISSION_J = E_FISSION_MEV * MEV_TO_J  # énergie/fission en Joules
 
 SECONDS_PER_DAY = 86400.0
-SECONDS_PER_YEAR = 365.25 * SECONDS_PER_DAY  # année moyenne (inclut année bissextile)
+SECONDS_PER_YEAR = 365.25 * SECONDS_PER_DAY  # année moyenne 
 LIVE_TIME_YEARS = 6.0            # temps d'acquisition
 T_EXP = LIVE_TIME_YEARS * SECONDS_PER_YEAR  # exposition totale (s)
 
-E_MIN, E_MAX = 1.806, 10.0       # fenêtre énergie ν̄_e (seuil IBD ~1.806 MeV, ici on va jusqu'à 10)
+E_MIN, E_MAX = 1.806, 10.0       # fenêtre énergie ν̄_e 
 
-# Binning (fin -> courbe plus lisse)
-NBINS = 800                      # bins fins -> histogramme fin -> courbes plus "continues"
+NBINS = 800                      
 E_BINS = np.linspace(E_MIN, E_MAX, NBINS + 1)  # bords des bins
 E_CENTERS = 0.5 * (E_BINS[1:] + E_BINS[:-1])   # centres des bins (pour plot en x)
-dE = E_BINS[1] - E_BINS[0]       # largeur d'un bin (constante ici)
+dE = E_BINS[1] - E_BINS[0]       # largeur d'un bin 
 
-SMOOTH_BINS = 7                  # taille de la moyenne glissante (lissage visuel)
+SMOOTH_BINS = 7                  
 
 
 # 1) Spectres antineutrinos par fission
@@ -69,7 +68,7 @@ DELTA = 1.293  # Mn - Mp (MeV) décalage cinématique
 
 def sigma_ibd(E):
     # section efficace approximée ν̄_e + p -> e+ + n
-    Ee = E - DELTA              # énergie du positron (approx : Eν - Δ)
+    Ee = E - DELTA              # énergie du positron 
     pe2 = Ee**2 - ME**2         # p_e^2 = E_e^2 - m_e^2 (en unités MeV^2)
 
     sigma = np.zeros_like(E)    # par défaut = 0 (utile sous le seuil)
@@ -82,12 +81,12 @@ def sigma_ibd(E):
     return sigma
 
 
-# 3) Oscillations (forme "article" -> NO/IO visible)
+# 3) Oscillations -> NO/IO visible
 
 SIN2_TH12 = 0.307  # sin^2(theta12)
 SIN2_TH13 = 0.024  # sin^2(theta13)
 DM21 = 7.54e-5     # Δm^2_21 (eV^2)
-DMEE = 2.43e-3     # Δm^2_ee (eV^2) (valeur typique)
+DMEE = 2.43e-3     # Δm^2_ee (eV^2) 
 
 def pee_article(E_nu, ordering="NO"):
     # probabilité de survie ν̄_e -> ν̄_e
@@ -105,7 +104,7 @@ def pee_article(E_nu, ordering="NO"):
     E_GeV = E_nu / 1000.0  # conversion MeV -> GeV (car 1.267 utilise GeV)
     D21 = 1.267 * DM21 * L_KM / E_GeV     # phase solaire
     Dee = 1.267 * DMEE * L_KM / E_GeV     # phase atmosphérique effective
-    absDee = np.abs(Dee)                  # ici on sépare le signe ailleurs (article)
+    absDee = np.abs(Dee)                  # ici on sépare le signe ailleurs 
 
     # A = 1 - sin^2(2θ12) sin^2(D21)
     A = 1.0 - sin2_2th12 * (np.sin(D21) ** 2)
@@ -130,14 +129,14 @@ def pee_article(E_nu, ordering="NO"):
     return np.clip(1.0 - term_sol - term_atm, 0.0, 1.0)
 
 
-# 4) Efficacité (plateau demandé)
+# 4) Efficacité
 
 def efficiency(E, E_turn=2.2, width=0.15, plateau=0.73):
     # sigmoid : en dessous de ~2 MeV -> faible efficacité, puis plateau à 0.73
     return plateau / (1.0 + np.exp(-(E - E_turn) / width))
 
 
-# 5) Flux absolu + spectre d'événements (taux)
+# 5) Flux absolu + spectre d'événements 
 
 def fission_rate():
     # convertit puissance thermique -> nombre de fissions/s
@@ -151,7 +150,7 @@ def flux_detector(E):
 
 def dN_dE_dt(E, ordering="NO"):
     # events/(MeV s)
-    # c'est "la formule maîtresse" : cible * flux * σ * Pee * efficacité
+    # cible * flux * σ * Pee * efficacité
     return (
         N_P
         * flux_detector(E)
@@ -162,7 +161,7 @@ def dN_dE_dt(E, ordering="NO"):
 
 def expected_events(ordering="NO"):
     # intégration du taux sur E -> nombre total attendu sur 6 ans
-    E = np.linspace(E_MIN, E_MAX, 9000)  # maillage fin pour intégration stable
+    E = np.linspace(E_MIN, E_MAX, 9000)  
     rate_per_s = np.trapezoid(dN_dE_dt(E, ordering=ordering), E)  # events/s
     return rate_per_s * T_EXP  # sur 6 ans
 
@@ -170,12 +169,12 @@ def expected_events(ordering="NO"):
 # 6) Résolution + MC
 
 def sigma_E_juno(E, a=0.03):
-    # sigma(E) = a * sqrt(E) (MeV) ici -> forme JUNO simple
+    # sigma(E) = a * sqrt(E) (MeV)
     E = np.clip(E, 1e-6, None)
     return a * np.sqrt(E)
 
 def smear_E(E_true, a=0.03, rng=None):
-    # smear gaussien : E_rec ~ N(E_true, sigma(E_true))
+    #type gaussien : E_rec ~ N(E_true, sigma(E_true))
     if rng is None:
         rng = np.random.default_rng()
     return rng.normal(loc=E_true, scale=sigma_E_juno(E_true, a=a))
@@ -195,14 +194,14 @@ def sample_E_true(N, ordering="NO", seed=0):
     out = []
     # boucle jusqu'à avoir N énergies acceptées
     while len(out) < N:
-        batch = 250000  # batch grand pour limiter les itérations python
+        batch = 250000  
         E = rng.uniform(E_MIN, E_MAX, size=batch)  # propose des E uniformes
         u = rng.uniform(0.0, fmax, size=batch)     # tirage uniforme sous fmax
         f = dN_dE_dt(E, ordering=ordering)         # taux réel sur ces E
         keep = E[u < f]                            # accept-reject
         out.extend(keep.tolist())
 
-    return np.array(out[:N])  # on tronque si on a dépassé
+    return np.array(out[:N])  
 
 def moving_average(y, w):
     # moyenne glissante simple pour lisser des courbes MC bruitées
@@ -210,7 +209,6 @@ def moving_average(y, w):
         return y
     w = int(w)
     kernel = np.ones(w, dtype=float) / w  # noyau uniforme
-    # padding simple pour éviter les bords trop moches
     ypad = np.pad(y, (w//2, w-1-w//2), mode="edge")
     return np.convolve(ypad, kernel, mode="valid")
 
@@ -268,5 +266,3 @@ def plot_no_io_spectrum_mc(a0=0.03):
 
 if __name__ == "__main__":
     plot_no_io_spectrum_mc(a0=0.03)
-
-   
