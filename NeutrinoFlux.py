@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 
 import JunoPhysics as phys
 
+
 # Paramètres de Vogel-Engel pour le spectre S(E)
 VOGEL_COEFFS = {
     'U235':  [0.870, -0.160, -0.0910],
@@ -57,6 +58,7 @@ def observable_spectrum(fluxes_dict, sigma_array):
         
     return obs_spectra
 
+
 # Liste des réacteurs (cf tableau 1-2)
 reactor_list = [
     phys.Reactor("YJ-C1", 2.9, 52.75), phys.Reactor("YJ-C2", 2.9, 52.84),
@@ -74,11 +76,11 @@ event_rates = observable_spectrum(flux_data, sigma_ibd)
 fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(12, 4))
 
 styles = {
-    'Total': {'c': "#ED8EE7", 'label': 'Total'},
+    'Total': {'c': '#ED8EE7', 'label': 'Total'},
     'U235':  {'c': '#F8C471', 'label': 'U-235 '},
     'Pu239': {'c': '#82E0AA', 'label': 'Pu-239 '},
-    'Pu241': {'c': "#AA89E3", 'label': 'Pu-241 '},
-    'U238':  {'c': "#82A4E0", 'label': 'U-238'},
+    'U238':  {'c': '#82A4E0', 'label': 'U-238'},
+    'Pu241': {'c': '#AA89E3', 'label': 'Pu-241 '},
 }
 
 for name, flux in flux_data.items():
