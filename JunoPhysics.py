@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.stats import norm
 
 class PhysicsConstants:
     # Constantes Nucléaires et Physiques
@@ -6,19 +7,16 @@ class PhysicsConstants:
     KM_TO_CM = 1e5
     DELTA_NP = 1.2933
     ME = 0.511
+    
+    # Valeur standard du Yellow Book pour 20kt de LS
+    N_PROTONS = 1.5e33 
     SIGMA_PREFACTOR = 0.0952 # Correspond à des unités de 1e-42 cm^2
-    
-    # Constantes du Détecteur JUNO
-    MASS_DETECTOR_KG = 20e6     # 20 kton
-    H_MASS_FRACTION = 0.12      # ~12% d'hydrogène en masse
-    NA = 6.022e23               # Avogadro
-    MOLAR_MASS_H = 1.00794e-3   # kg/mol
-    
-    # Facteur de normalisation global : N_p * (Conversion Sigma) * (Sec/Jour)
-    # N_p = (Masse * Frac / M_H) * NA
-    N_PROTONS = (MASS_DETECTOR_KG * H_MASS_FRACTION / MOLAR_MASS_H) * NA
     SIGMA_UNIT_CORRECTION = 1e-42
     SECONDS_PER_DAY = 86400
+
+    LIVE_TIME_YEARS = 6
+    DAYS_PER_YEAR = 365.25
+    EFFICIENCY = 0.73 # Efficacité de détection IBD + sélection
 
 ISOTOPES = {
     'U235':  {'e_fis': 202.36, 'frac': 0.58, 'coeffs': [0.870, -0.160, -0.0910]},
@@ -46,12 +44,17 @@ def spectrum_per_fission(energy, isotope):
 
 # Calcul de la section efficace IBD
 def ibd_cross_section(energy):
+    """
+    Calcule la section efficace Inverse Beta Decay (IBD).
+    """
+    # Seuil de réaction : E_nu > Delta + m_e approx 1.806 MeV
     threshold = PhysicsConstants.DELTA_NP + PhysicsConstants.ME
-    sigma = np.zeros_like(energy)
     mask = energy > threshold
+
+    sigma = np.zeros_like(energy) # Initialisation
     
-    E_e = energy[mask] - PhysicsConstants.DELTA_NP
-    p_e = np.sqrt(E_e**2 - PhysicsConstants.ME**2)
+    E_e = energy[mask] - PhysicsConstants.DELTA_NP     # Energie du positron: E_e = E_nu - (Mn - Mp)
+    p_e = np.sqrt(E_e**2 - PhysicsConstants.ME**2)    # Impulsion du positron: p_e = sqrt(E_e^2 - m_e^2)
     
     sigma[mask] = PhysicsConstants.SIGMA_PREFACTOR * E_e * p_e
     return sigma
@@ -66,7 +69,6 @@ def calculate_events_per_day(energies, spectrum_y, efficiency=0.73):
               
     return integral * factor
 
-from scipy.stats import norm
 
 def energy_resolution(energies, spectrum):
     """
@@ -75,7 +77,7 @@ def energy_resolution(energies, spectrum):
     convolved_spectrum = np.zeros_like(spectrum)
     
     # Paramètre de résolution JUNO
-    res = 0.03 
+    res = 0.03
     
     # Pour chaque bin d'énergie réelle (E_true)
     for i, e_true in enumerate(energies):
